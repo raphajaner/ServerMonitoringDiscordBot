@@ -1,27 +1,31 @@
+import argparse
 import asyncio
 import os
 import discord
-import psutil
 from discord.ext import tasks
 import socket
 from pathlib import Path
 from psutil._common import bytes2human
+from tasks import monitor_server
 
+parser = argparse.ArgumentParser(
+    prog='ServerMonitor',
+    description='Monitors the server and sends alerts to Discord'
+)
 
-def monitor_server():
-    try:
-        cpu_temps = [t.current for t in psutil.sensors_temperatures()['coretemp']]
-    except KeyError:
-        with open('/sys/class/hwmon/hwmon0/temp1_input') as f:
-            cpu_temps = [float(f.read()) / 1000]
+parser.add_argument(
+    '--token',
+    type=str,
+    help='Token of the bot.'
+)
 
-    cpu_temp_max = max(cpu_temps)
-    cpu_load = psutil.cpu_percent()
-    ram_usage = psutil.virtual_memory().percent
-    cpu_freq_max = psutil.cpu_freq().max
-    disk_usage = psutil.disk_usage('/home')
+parser.add_argument(
+    '--channel_id',
+    type=int,
+    help='ID of the discord channel to send msgs to.'
+)
 
-    return cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage
+args = parser.parse_args()
 
 
 class MyClient(discord.Client):
@@ -31,6 +35,7 @@ class MyClient(discord.Client):
 
     async def setup_hook(self) -> None:
         self.check_temp.start()
+        self.check_ram.start()
         self.check_disk.start()
 
     async def on_message(self, message):
@@ -51,7 +56,7 @@ class MyClient(discord.Client):
 
     @tasks.loop(seconds=10)
     async def check_temp(self):
-        channel = self.get_channel(1082732904788000770)  # channel ID goes here
+        channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
 
@@ -67,12 +72,27 @@ class MyClient(discord.Client):
             )
             await asyncio.sleep(60 * 60 * 0.5)
 
-    @tasks.loop(hours=1)
-    async def check_disk(self):
-        channel = self.get_channel(1082732904788000770)  # channel ID goes here
+    @tasks.loop(seconds=10)
+    async def check_ram(self):
+        channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
-        _, _, _, _, disk_usage = monitor_server()
+        cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+        if ram_usage > 95:
+            await channel.send(
+                f'**Warning @here!**\n'
+                f'Server: *{socket.gethostname()}*\n'
+                f'Getting crowded in here: '
+                f'- RAM_usage = {ram_usage}%\n'
+            )
+            await asyncio.sleep(60 * 60 * 0.5)
+
+    @tasks.loop(hours=1)
+    async def check_disk(self):
+        channel = self.get_channel(args.channel_id)  # channel ID goes here
+        if channel is None:
+            print('Channel not found')
+        cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
         if disk_usage.percent > 90:
             await channel.send(
                 f'**Warning @here!**\n'
@@ -89,6 +109,10 @@ class MyClient(discord.Client):
     async def before_check_temp(self):
         await self.wait_until_ready()  # wait until the bot logs in
 
+    @check_ram.before_loop
+    async def before_check_disk(self):
+        await self.wait_until_ready()  # wait until the bot logs in
+
     @check_disk.before_loop
     async def before_check_disk(self):
         await self.wait_until_ready()  # wait until the bot logs in
@@ -97,10 +121,4 @@ class MyClient(discord.Client):
 intents = discord.Intents.default()
 intents.message_content = True
 client = MyClient(intents=intents)
-
-# Load token from file that contains only the token
-path = os.path.join(Path.home(), "server_monitoring_discord_token.txt")
-with open(path, 'r') as file:
-    token = file.read()
-
-client.run(token)
+client.run(args.token)
