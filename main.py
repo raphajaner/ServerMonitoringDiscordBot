@@ -43,7 +43,19 @@ class MyClient(discord.Client):
         if message.author == self.user:
             return
 
-        if message.content.lower() == 'ping':
+        msg_low = message.content.lower()
+
+        if msg_low == 'ping':
+            cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+            await message.channel.send(
+                f'Server: *{socket.gethostname()}*\n'
+                f'- T_CPU_max = {cpu_temp_max}°C\n'
+                f'- CPU_load = {cpu_load}%\n'
+                f'- RAM_usage = {ram_usage}%\n'
+                f'- f_CPU_max = {int(cpu_freq_max)}Hz\n'
+                f'- C_home_usage = {disk_usage.percent}%\n'
+            )
+        elif msg_low == socket.gethostname().lower():
             cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
             await message.channel.send(
                 f'Server: *{socket.gethostname()}*\n'
