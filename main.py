@@ -6,7 +6,7 @@ from discord.ext import tasks
 import socket
 from pathlib import Path
 from psutil._common import bytes2human
-from tasks import monitor_server
+from tasks import monitor_cpu, monitor_disk, monitor_ram, monitor_gpu
 
 parser = argparse.ArgumentParser(
     prog='ServerMonitor',
@@ -34,7 +34,8 @@ class MyClient(discord.Client):
         print('Logged on as', self.user)
 
     async def setup_hook(self) -> None:
-        self.check_temp.start()
+        self.check_cpu.start()
+        self.check_gpu.start()
         self.check_ram.start()
         self.check_disk.start()
 
@@ -44,9 +45,12 @@ class MyClient(discord.Client):
             return
 
         msg_low = message.content.lower()
+        if msg_low == 'ping' or msg_low == socket.gethostname().lower():
+            cpu_temp_max, cpu_temp_crit, cpu_load, cpu_freq_max = monitor_cpu()
+            disk_usage = monitor_disk()
+            ram_usage = monitor_ram()
+            gpu_temp, gpu_util, gpu_memory_free, user, gpu_idx, gpu_name = monitor_gpu()
 
-        if msg_low == 'ping':
-            cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
             await message.channel.send(
                 f'Server: *{socket.gethostname()}*\n'
                 f'- T_CPU_max = {cpu_temp_max}°C\n'
@@ -54,33 +58,44 @@ class MyClient(discord.Client):
                 f'- RAM_usage = {ram_usage}%\n'
                 f'- f_CPU_max = {int(cpu_freq_max)}Hz\n'
                 f'- C_home_usage = {disk_usage.percent}%\n'
-            )
-        elif msg_low == socket.gethostname().lower():
-            cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
-            await message.channel.send(
-                f'Server: *{socket.gethostname()}*\n'
-                f'- T_CPU_max = {cpu_temp_max}°C\n'
-                f'- CPU_load = {cpu_load}%\n'
-                f'- RAM_usage = {ram_usage}%\n'
-                f'- f_CPU_max = {int(cpu_freq_max)}Hz\n'
-                f'- C_home_usage = {disk_usage.percent}%\n'
+                f'- T_GPU_max_{gpu_idx} = {gpu_temp}°C\n'
+                f'- GPU_load_{gpu_idx} = {gpu_util}%\n'
             )
 
     @tasks.loop(seconds=10)
-    async def check_temp(self):
+    async def check_cpu(self):
         channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
 
-        cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+        cpu_temp_max, cpu_temp_crit, cpu_load, cpu_freq_max = monitor_cpu()
 
         if cpu_temp_max > cpu_temp_crit:
             await channel.send(
                 f'Warning @here!\n'
                 f'Server: *{socket.gethostname()}*\n'
-                f'Getting hot in here (T_crit = {cpu_temp_crit}): '
+                f'CPU: Getting hot in here (T_CPU_crit = {cpu_temp_crit}): '
                 f'- T_CPU_max = {cpu_temp_max}°C\n'
                 f'- CPU_load = {cpu_load}%\n'
+            )
+            await asyncio.sleep(60 * 60 * 0.5)
+
+    @tasks.loop(seconds=10)
+    async def check_gpu(self):
+        channel = self.get_channel(args.channel_id)  # channel ID goes here
+        if channel is None:
+            print('Channel not found')
+
+        gpu_temp, gpu_util, gpu_memory_free, user, gpu_idx, gpu_name = monitor_gpu()
+
+        if gpu_temp > 85:
+            await channel.send(
+                f'Warning @here!\n'
+                f'Server: *{socket.gethostname()}*\n'
+                f'GPU_{gpu_idx}: Getting hot in here: '
+                f'- T_GPU_max = {cpu_temp_max}°C\n'
+                f'- GPU_load = {gpu_util}%\n'
+                f'- User = @{user}%\n'
             )
             await asyncio.sleep(60 * 60 * 0.5)
 
@@ -89,12 +104,14 @@ class MyClient(discord.Client):
         channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
-        cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+
+        ram_usage = monitor_ram()
+
         if ram_usage > 95:
             await channel.send(
                 f'**Warning @here!**\n'
                 f'Server: *{socket.gethostname()}*\n'
-                f'Getting crowded in here: '
+                f'RAM: Getting crowded in here: '
                 f'- RAM_usage = {ram_usage}%\n'
             )
             await asyncio.sleep(60 * 60 * 0.5)
@@ -104,12 +121,14 @@ class MyClient(discord.Client):
         channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
-        cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+
+        disk_usage = monitor_disk()
+
         if disk_usage.percent > 90:
             await channel.send(
                 f'**Warning @here!**\n'
                 f'Server: *{socket.gethostname()}*\n'
-                f'Running out of disk space on /home:\n'
+                f'Disk: Running out of disk space on /home:\n'
                 f'- C_home_usage = {disk_usage.percent}%\n'
                 f'- C_home_used = {bytes2human(disk_usage.used)}\n'
                 f'- C_home_free = {bytes2human(disk_usage.free)}\n'
@@ -117,17 +136,21 @@ class MyClient(discord.Client):
             )
             await asyncio.sleep(60 * 60 * 24)
 
-    @check_temp.before_loop
-    async def before_check_temp(self):
+    @check_cpu.before_loop
+    async def before_check_cpu(self):
         await self.wait_until_ready()  # wait until the bot logs in
 
+    @check_gpu.before_loop
+    async def before_check_gpu(self):
+        await self.wait_until_ready()
+
     @check_ram.before_loop
-    async def before_check_disk(self):
-        await self.wait_until_ready()  # wait until the bot logs in
+    async def before_check_ram(self):
+        await self.wait_until_ready()
 
     @check_disk.before_loop
     async def before_check_disk(self):
-        await self.wait_until_ready()  # wait until the bot logs in
+        await self.wait_until_ready()
 
 
 intents = discord.Intents.default()
