@@ -46,7 +46,7 @@ class MyClient(discord.Client):
         msg_low = message.content.lower()
 
         if msg_low == 'ping':
-            cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+            cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
             await message.channel.send(
                 f'Server: *{socket.gethostname()}*\n'
                 f'- T_CPU_max = {cpu_temp_max}°C\n'
@@ -56,7 +56,7 @@ class MyClient(discord.Client):
                 f'- C_home_usage = {disk_usage.percent}%\n'
             )
         elif msg_low == socket.gethostname().lower():
-            cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+            cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
             await message.channel.send(
                 f'Server: *{socket.gethostname()}*\n'
                 f'- T_CPU_max = {cpu_temp_max}°C\n'
@@ -72,13 +72,13 @@ class MyClient(discord.Client):
         if channel is None:
             print('Channel not found')
 
-        cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+        cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
 
-        if cpu_temp_max > 80:
+        if cpu_temp_max > cpu_temp_crit:
             await channel.send(
                 f'Warning @here!\n'
                 f'Server: *{socket.gethostname()}*\n'
-                f'Getting hot in here: '
+                f'Getting hot in here (T_crit = {cpu_temp_crit}): '
                 f'- T_CPU_max = {cpu_temp_max}°C\n'
                 f'- CPU_load = {cpu_load}%\n'
             )
@@ -89,7 +89,7 @@ class MyClient(discord.Client):
         channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
-        cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+        cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
         if ram_usage > 95:
             await channel.send(
                 f'**Warning @here!**\n'
@@ -104,7 +104,7 @@ class MyClient(discord.Client):
         channel = self.get_channel(args.channel_id)  # channel ID goes here
         if channel is None:
             print('Channel not found')
-        cpu_temp_max, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
+        cpu_temp_max, cpu_temp_crit, cpu_load, ram_usage, cpu_freq_max, disk_usage = monitor_server()
         if disk_usage.percent > 90:
             await channel.send(
                 f'**Warning @here!**\n'
